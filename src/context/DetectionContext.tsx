@@ -19,7 +19,7 @@ import {
   generateDynamicForensicReport, 
   DetectionExpectation 
 } from '../utils/forensicEngine';
-import { extractVideoFrames, ExtractedFrame } from '../utils/videoExtractor';
+import { extractVideoFrames, ExtractedFrame, VideoExtractionResult } from '../utils/videoExtractor';
 import { 
   analyzeVideoWithBackend, 
   checkBackendHealth, 
@@ -242,9 +242,10 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     // If an actual uploaded File is available, run REAL BACKEND INFERENCE!
     if (uploadedRawFile && customFile) {
+      let extracted: VideoExtractionResult | null = null;
       try {
         console.log(`[DetectionContext] Extracting video frames from ${uploadedRawFile.name}...`);
-        const extracted = await extractVideoFrames(uploadedRawFile, 6);
+        extracted = await extractVideoFrames(uploadedRawFile, 6);
         console.log(`[DetectionContext] Extracted ${extracted.frames.length} frames.`);
 
         // Attempt live backend call
@@ -267,7 +268,7 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (backendResult.evidenceFrames && backendResult.evidenceFrames.length > 0) {
             backendResult.evidenceFrames = backendResult.evidenceFrames.map((ef, idx) => ({
               ...ef,
-              thumbnailUrl: extracted.frames[idx]?.dataUrl || ef.thumbnailUrl
+              thumbnailUrl: extracted?.frames[idx]?.dataUrl || ef.thumbnailUrl
             }));
           }
 
@@ -279,7 +280,28 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         console.warn('[DetectionContext] Live backend call failed or was offline. Falling back to calibrated local engine:', err);
       }
 
-      // Offline fallback: Use dynamic forensic engine
+      // Offline / Vercel fallback: Use calibrated forensic engine with extracted keyframes & metadata
+      const dynamicReport = generateDynamicForensicReport(
+        {
+          name: uploadedRawFile.name,
+          size: customFile.size,
+          blobUrl: uploadedFileBlobUrl || customFile.blobUrl,
+        },
+        mode,
+        extracted ? {
+          duration: extracted.duration,
+          durationSeconds: extracted.durationSeconds,
+          resolution: extracted.resolution,
+          fps: extracted.fps,
+          frames: extracted.frames,
+        } : undefined
+      );
+      setPendingResult(dynamicReport);
+      return;
+    }
+
+    // Direct custom file without raw File stream
+    if (customFile) {
       const dynamicReport = generateDynamicForensicReport(customFile, mode);
       setPendingResult(dynamicReport);
       return;

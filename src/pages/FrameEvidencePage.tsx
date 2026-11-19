@@ -76,10 +76,12 @@ function createFallbackGradCAM(
 
   const isFakeClass = targetClass === 'fake' || (targetClass === 'predicted' && frame.deepfakeProbability > 50);
 
+  const isManipulated = frame.deepfakeProbability > 50;
+
   return {
     success: true,
-    predicted_class: frame.deepfakeProbability > 50 ? 'MANIPULATED' : 'AUTHENTIC',
-    confidence: frame.deepfakeProbability,
+    predicted_class: isManipulated ? 'MANIPULATED' : 'AUTHENTIC',
+    confidence: isManipulated ? frame.deepfakeProbability : Number((100 - frame.deepfakeProbability).toFixed(1)),
     original_frame: frameB64,
     heatmap: heatmapUri,
     overlay: overlayUri || heatmapUri,
