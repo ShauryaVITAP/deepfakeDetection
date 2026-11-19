@@ -64,6 +64,16 @@ class AnalysisRequest(BaseModel):
     video: VideoMetaInput
     frames: List[FrameInput]
 
+@app.get("/")
+def root():
+    return {
+        "service": "AegisVision Deepfake Detection Forensic Backend",
+        "status": "online",
+        "version": "2.0.0",
+        "health": "/api/health",
+        "docs": "/docs"
+    }
+
 @app.get("/api/health")
 def health():
     return {
