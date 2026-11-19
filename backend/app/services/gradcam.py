@@ -205,6 +205,34 @@ class GradCAMService:
             print(f"[GradCAM] Fine-tuning error: {e}")
             return False
 
+    def predict_probabilities(self, image: Image.Image) -> Tuple[float, float, int]:
+        """
+        Run PyTorch EfficientNet-B0 inference on a PIL Image.
+        Returns:
+            p_authentic: float in [0.0, 1.0] (Class 0: AUTHENTIC)
+            p_manipulated: float in [0.0, 1.0] (Class 1: MANIPULATED)
+            predicted_idx: int (0 or 1)
+        """
+        self.initialize()
+        if not self.is_initialized or self.model is None:
+            return 0.50, 0.50, 0
+
+        import torch
+        import torch.nn.functional as F
+
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        input_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            logits = self.model(input_tensor)
+            probabilities = F.softmax(logits, dim=1).squeeze(0)
+            p_authentic = float(probabilities[CLASS_AUTHENTIC].item())
+            p_manipulated = float(probabilities[CLASS_MANIPULATED].item())
+            predicted_idx = int(torch.argmax(logits, dim=1).item())
+
+        return p_authentic, p_manipulated, predicted_idx
+
     def generate_gradcam(
         self,
         image: Image.Image,

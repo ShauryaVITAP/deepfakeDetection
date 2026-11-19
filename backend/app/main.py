@@ -175,7 +175,8 @@ def analyze_video(request: AnalysisRequest):
             "timeline": result["timeline"],
             "evidenceFrames": result["evidenceFrames"],
             "certificateId": f"AEGIS-CERT-2026-{scan_id[-4:]}-VERIFIED",
-            "signatureHash": hashlib.sha256((scan_id + result["verdict"]).encode()).hexdigest()
+            "signatureHash": hashlib.sha256((scan_id + result["verdict"]).encode()).hexdigest(),
+            "debugInfo": result.get("debugInfo")
         }
 
         return response_payload

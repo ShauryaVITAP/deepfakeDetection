@@ -496,6 +496,47 @@ export const DetectionResultsPage: React.FC = () => {
         </div>
       </Card>
 
+      {/* Model Telemetry & Verified Inference Pipeline */}
+      {currentAnalysis.debugInfo && (
+        <Card className="border-[#3D2B56] bg-[#181520]">
+          <div className="flex items-center gap-2 mb-3">
+            <Cpu className="w-4 h-4 text-[#2ED573]" />
+            <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-[#F5F0FA]">
+              Model Telemetry & Verified Inference Pipeline
+            </h4>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#2ED573]/20 text-[#2ED573] border border-[#2ED573]/40">
+              Live PyTorch
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+            <div className="p-3 rounded-xl bg-[#121017] border border-[#2B2636]">
+              <div className="text-[10px] text-[#A39AAA]">MODEL ARCHITECTURE</div>
+              <div className="text-[#F5F0FA] font-semibold truncate mt-0.5" title={currentAnalysis.debugInfo.model_name}>
+                {currentAnalysis.debugInfo.model_name}
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-[#121017] border border-[#2B2636]">
+              <div className="text-[10px] text-[#A39AAA]">PREDICTED CLASS</div>
+              <div className={`font-bold mt-0.5 ${currentAnalysis.debugInfo.predicted_class === 'AUTHENTIC' ? 'text-[#2ED573]' : 'text-[#FF5370]'}`}>
+                {currentAnalysis.debugInfo.predicted_class}
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-[#121017] border border-[#2B2636]">
+              <div className="text-[10px] text-[#A39AAA]">CLASS PROBABILITIES</div>
+              <div className="text-[#F5F0FA] mt-0.5">
+                Real: {(currentAnalysis.debugInfo.real_probability * 100).toFixed(1)}% | Fake: {(currentAnalysis.debugInfo.deepfake_probability * 100).toFixed(1)}%
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-[#121017] border border-[#2B2636]">
+              <div className="text-[10px] text-[#A39AAA]">INPUT TENSOR & PREPROCESSING</div>
+              <div className="text-[#B58AFF] mt-0.5 truncate" title="RGB 224x224, ImageNet Normalization, Tensor [1, 3, 224, 224]">
+                RGB 224x224 [1, 3, 224, 224]
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
     </div>
   );
 };

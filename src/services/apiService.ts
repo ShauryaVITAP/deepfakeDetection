@@ -1,7 +1,8 @@
 import { AnalysisResult, GradCAMResponse } from '../types';
 import { ExtractedFrame } from '../utils/videoExtractor';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? '' : 'http://localhost:8000');
+const DEFAULT_RENDER_BACKEND = 'https://deepfake-backend-2c7f.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8000' : DEFAULT_RENDER_BACKEND);
 
 export interface BackendHealth {
   status: string;
@@ -23,7 +24,7 @@ export async function checkBackendHealth(): Promise<BackendHealth | null> {
     const res = await fetch(`${API_BASE_URL}/api/health`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(2000) // 2 second timeout
+      signal: AbortSignal.timeout(8000) // 8 second timeout for cloud instances
     });
     if (res.ok) {
       return await res.json();

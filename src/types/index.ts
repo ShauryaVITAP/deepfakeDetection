@@ -102,6 +102,15 @@ export interface AnalysisResult {
   evidenceFrames: FrameEvidence[];
   certificateId: string;
   signatureHash: string;
+  debugInfo?: {
+    predicted_class: string;
+    real_probability: number;
+    deepfake_probability: number;
+    model_name: string;
+    preprocessing?: any;
+    inference_device?: string;
+    frames_analyzed?: number;
+  };
 }
 
 export interface AnalysisHistoryItem {

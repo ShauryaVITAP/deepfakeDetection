@@ -191,6 +191,10 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             setAnalysisStage('audio_visual_sync');
             setCurrentStageText('Correlating PRNU sensor noise consistency & Bi-LSTM blinking dynamics...');
           } else if (next < 100) {
+            if (!pendingResult && uploadedRawFile) {
+              // Wait for real backend deep learning inference to return
+              return 95;
+            }
             setAnalysisStage('generating_report');
             setCurrentStageText('Aggregating calibrated ensemble decision fusion & signing forensic certificate...');
           } else {
@@ -227,13 +231,14 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
 
     return () => clearInterval(interval);
-  }, [isProcessing, pendingResult]);
+  }, [isProcessing, pendingResult, uploadedRawFile]);
 
   const startAnalysis = async (
     sampleType: 'manipulated' | 'authentic' | 'inconclusive' | 'custom' = 'manipulated',
     customFile?: { name: string; size: string; blobUrl?: string },
     mode: DetectionExpectation = detectionExpectation
   ) => {
+    setPendingResult(null);
     setAnalysisProgress(0);
     setIsProcessing(true);
     setAnalysisStage('uploading');
