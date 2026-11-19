@@ -1,4 +1,4 @@
-import { AnalysisResult } from '../types';
+import { AnalysisResult, GradCAMResponse } from '../types';
 import { ExtractedFrame } from '../utils/videoExtractor';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? '' : 'http://localhost:8000');
@@ -391,3 +391,50 @@ export async function generateForensicAuditReport(
   }
   return data.content;
 }
+
+/**
+ * Generate genuine Grad-CAM explainability heatmap and overlay via PyTorch EfficientNet-B0 backend
+ */
+export async function generateGradCAM(params: {
+  frame_base64: string;
+  target_class?: 'predicted' | 'fake' | 'real';
+  intensity?: 'low' | 'medium' | 'high';
+  overlay_alpha?: number;
+}): Promise<GradCAMResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/gradcam/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(params)
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Grad-CAM API error (${res.status}): ${errorText}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Check PyTorch Grad-CAM backend service status
+ */
+export async function getGradCAMStatus(): Promise<{
+  status: string;
+  model: string;
+  target_layer: string;
+  device: string;
+  is_trained: boolean;
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/gradcam/status`, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' }
+  });
+  if (!res.ok) {
+    throw new Error(`Grad-CAM status error: ${res.status}`);
+  }
+  return await res.json();
+}
+

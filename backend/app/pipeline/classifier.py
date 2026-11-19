@@ -151,7 +151,7 @@ class ForensicDeepfakeClassifier:
             })
 
             # Add to evidence frames
-            evidence_frames.append({
+            frame_item = {
                 "id": f"ef-real-{i+1}",
                 "frameNumber": int((i + 1) * (1200 // max(1, total_frames))),
                 "timestamp": f"{time_str}.{int((i*33)%100):02d}",
@@ -172,7 +172,20 @@ class ForensicDeepfakeClassifier:
                     "width": 35,
                     "height": 45
                 }
-            })
+            }
+
+            # Generate compact thumbnail data URI for genuine Grad-CAM inspection
+            try:
+                import io
+                thumb = frame.copy()
+                thumb.thumbnail((480, 270))
+                buf = io.BytesIO()
+                thumb.save(buf, format="JPEG", quality=80)
+                frame_item["thumbnailUrl"] = f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+            except Exception:
+                pass
+
+            evidence_frames.append(frame_item)
 
         # Aggregation: 20% trimmed mean for stability against occasional outlier blurs
         scores_arr = np.array(frame_p_fakes)

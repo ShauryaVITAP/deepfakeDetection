@@ -116,3 +116,24 @@ export interface AnalysisHistoryItem {
   analyzedFrames: number;
   status: 'Completed' | 'Processing' | 'Failed';
 }
+
+export interface GradCAMResponse {
+  success: boolean;
+  predicted_class: 'MANIPULATED' | 'AUTHENTIC';
+  confidence: number;
+  original_frame: string;
+  heatmap: string;
+  overlay: string;
+  target_class_analyzed: string;
+  class_probabilities: {
+    authentic: number;
+    manipulated: number;
+  };
+  processing_time_ms: number;
+  model_name: string;
+  target_layer?: string;
+  device: string;
+  is_trained: boolean;
+  error?: string;
+}
+

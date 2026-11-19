@@ -21,6 +21,7 @@ from .pipeline.classifier import (
 )
 from .db import chat_db
 from .chat_service import groq_chat_service
+from .services.gradcam import gradcam_service
 
 app = FastAPI(
     title="AegisVision Deepfake Detection Forensic Backend",
@@ -326,3 +327,50 @@ async def generate_audit(req: ForensicAuditRequest):
         case_dossier=req.analysis
     )
     return result
+
+# ================================================================
+# GRAD-CAM EXPLAINABILITY ENDPOINTS (PyTorch EfficientNet-B0)
+# ================================================================
+
+class GradCAMRequest(BaseModel):
+    frame_base64: str
+    target_class: Optional[str] = "predicted"
+    intensity: Optional[str] = "medium"
+    overlay_alpha: Optional[float] = None
+
+@app.get("/api/gradcam/status")
+def get_gradcam_status():
+    """
+    Returns telemetry for the PyTorch EfficientNet-B0 Grad-CAM service,
+    hooked layer, device (CPU/CUDA), and model weights.
+    """
+    return gradcam_service.get_status()
+
+@app.post("/api/gradcam/generate")
+def generate_gradcam_endpoint(req: GradCAMRequest):
+    """
+    Generates genuine Grad-CAM explainability heatmap and overlay
+    for the provided facial frame using PyTorch EfficientNet-B0.
+    """
+    if not req.frame_base64:
+        raise HTTPException(status_code=400, detail="Frame image (frame_base64) is required.")
+
+    try:
+        from .services.gradcam import decode_base64_to_pil
+        image = decode_base64_to_pil(req.frame_base64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image format: {str(e)}")
+
+    try:
+        result = gradcam_service.generate_gradcam(
+            image=image,
+            target_class=req.target_class or "predicted",
+            intensity=req.intensity or "medium",
+            custom_alpha=req.overlay_alpha
+        )
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Grad-CAM generation error: {str(e)}")
+

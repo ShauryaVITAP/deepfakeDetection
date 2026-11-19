@@ -9,6 +9,7 @@ __pycache__/
 *$py.class
 *.pkl
 !backend/app/pipeline/calibrated_model.pkl
+!backend/app/models/efficientnet_b0_deepfake.pth
 *.db
 backend/app/db/*.db
 
