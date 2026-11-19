@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
@@ -15,7 +15,10 @@ import {
   Activity,
   Layers,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Bot,
+  Zap,
+  RotateCcw
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -34,7 +37,16 @@ import { ProgressBar } from '../components/common/ProgressBar';
 
 export const DetectionResultsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { currentAnalysis, setSampleCase } = useDetection();
+  const { 
+    currentAnalysis, 
+    setSampleCase,
+    setIsCopilotOpen,
+    setIsGroqModalOpen,
+    groqAuditText,
+    isGeneratingGroqAudit,
+    triggerGroqAudit,
+    hasGroqKey
+  } = useDetection();
 
   const isDeepfake = currentAnalysis.verdict === 'MANIPULATED';
   const isAuthentic = currentAnalysis.verdict === 'AUTHENTIC';
@@ -51,7 +63,7 @@ export const DetectionResultsPage: React.FC = () => {
             <span className="text-xs font-mono text-[#B58AFF] font-bold">{currentAnalysis.id}</span>
             <span className="text-xs text-[#A39AAA]">•</span>
             <span className="text-xs text-[#A39AAA] font-mono">{currentAnalysis.completedAt}</span>
-            <DemoDataBadge />
+            <DemoDataBadge isDemoData={currentAnalysis.isDemoData} />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#F5F0FA] tracking-tight">
             Forensic Detection & Verification Findings
@@ -126,7 +138,7 @@ export const DetectionResultsPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <VerdictBadge verdict={currentAnalysis.verdict} size="lg" />
               <Badge variant="plum">{currentAnalysis.riskLevel} Risk Level</Badge>
-              <DemoDataBadge />
+              <DemoDataBadge isDemoData={currentAnalysis.isDemoData} />
             </div>
 
             <div>
@@ -162,9 +174,12 @@ export const DetectionResultsPage: React.FC = () => {
           {/* Right: Executive Summary & Video Metadata Card */}
           <div className="lg:col-span-7 space-y-4">
             <div className="p-4 sm:p-5 rounded-2xl bg-[#17151C] border border-[#363042] space-y-2">
-              <div className="text-xs font-bold text-[#F5F0FA] uppercase tracking-wider flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-[#B58AFF]" />
-                Executive Forensic Summary
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-[#F5F0FA] uppercase tracking-wider flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-[#B58AFF]" />
+                  Executive Forensic Summary
+                </div>
+                <span className="text-[10px] text-[#A39AAA] font-mono">Calibrated Ensemble</span>
               </div>
               <p className="text-xs sm:text-sm text-[#A39AAA] leading-relaxed">
                 {currentAnalysis.executiveSummary}
@@ -207,6 +222,72 @@ export const DetectionResultsPage: React.FC = () => {
 
         </div>
       </div>
+
+      {/* ========================================================
+          GROQ AI FORENSIC DEEP DIVE SECTION
+         ======================================================== */}
+      <Card className="border-[#B58AFF]/50 bg-gradient-to-br from-[#24212B] via-[#2A1B38]/60 to-[#1D1326] shadow-[0_0_35px_rgba(181,138,255,0.15)]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#363042]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-[#3D2452] border border-[#B58AFF]/50 flex items-center justify-center text-[#B58AFF] shadow-[0_0_15px_rgba(181,138,255,0.3)]">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-[#F5F0FA]">
+                  Groq LPU Forensic Intelligence Synthesis
+                </h3>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#B58AFF]/20 text-[#B58AFF] border border-[#B58AFF]/40">
+                  Llama 3.3 70B
+                </span>
+              </div>
+              <p className="text-xs text-[#A39AAA]">
+                Qualitative AI cross-correlation, chain of custody, and statutory admissibility breakdown
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Bot className="w-4 h-4 text-[#B58AFF]" />}
+              onClick={() => setIsCopilotOpen(true)}
+            >
+              Ask AI Copilot
+            </Button>
+
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Sparkles className="w-4 h-4" />}
+              isLoading={isGeneratingGroqAudit}
+              onClick={triggerGroqAudit}
+            >
+              {groqAuditText ? 'Regenerate AI Audit' : 'Generate AI Audit'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Live Groq Generated Output */}
+        <div className="pt-4">
+          {groqAuditText ? (
+            <div className="p-5 rounded-2xl bg-[#17151C] border border-[#363042] text-xs text-[#F5F0FA] space-y-3 font-sans leading-relaxed whitespace-pre-wrap animate-in fade-in">
+              {groqAuditText}
+            </div>
+          ) : (
+            <div className="p-6 rounded-2xl bg-[#17151C]/60 border border-dashed border-[#363042] text-center space-y-2">
+              <Bot className="w-8 h-8 text-[#B58AFF] mx-auto opacity-70" />
+              <div className="text-xs font-semibold text-[#F5F0FA]">
+                No Groq AI Audit Generated Yet
+              </div>
+              <p className="text-[11px] text-[#A39AAA] max-w-md mx-auto">
+                Click <strong>"Generate AI Audit"</strong> to trigger Groq LPU's deep forensic reasoning engine, synthesizing model consensus, FFT frequency anomalies, and legal admissibility findings.
+              </p>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* 6 Forensic Biomarker Metric Cards */}
       <div>

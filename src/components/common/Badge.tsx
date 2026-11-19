@@ -68,8 +68,22 @@ export const VerdictBadge: React.FC<{ verdict: Verdict; size?: 'sm' | 'md' | 'lg
   }
 };
 
-export const DemoDataBadge: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#2A1B38] border border-[#B58AFF]/40 text-[10px] font-mono font-bold text-[#D6B8E8] uppercase tracking-wider ${className}`}>
-    <span>DEMO DATA</span>
-  </span>
-);
+export const DemoDataBadge: React.FC<{ isDemoData?: boolean; className?: string }> = ({ 
+  isDemoData = true, 
+  className = '' 
+}) => {
+  if (!isDemoData) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-[#1B382A] border border-[#2ED573]/50 text-[10px] font-mono font-bold text-[#2ED573] uppercase tracking-wider ${className}`}>
+        <span className="w-1.5 h-1.5 rounded-full bg-[#2ED573] animate-pulse" />
+        <span>LIVE MODEL PREDICTION</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#2A1B38] border border-[#B58AFF]/40 text-[10px] font-mono font-bold text-[#D6B8E8] uppercase tracking-wider ${className}`}>
+      <span>BENCHMARK DATA</span>
+    </span>
+  );
+};

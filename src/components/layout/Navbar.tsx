@@ -13,13 +13,23 @@ import {
   AlertTriangle,
   HelpCircle,
   Menu,
-  X
+  X,
+  Bot,
+  Zap,
+  Key
 } from 'lucide-react';
 import { useDetection } from '../../context/DetectionContext';
 import { Button } from '../common/Button';
 
 export const Navbar: React.FC = () => {
-  const { currentAnalysis, setSampleCase } = useDetection();
+  const { 
+    currentAnalysis, 
+    setSampleCase, 
+    setIsGroqModalOpen, 
+    setIsCopilotOpen,
+    hasGroqKey 
+  } = useDetection();
+  
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -34,7 +44,7 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-[#17151C]/95 backdrop-blur-md border-b border-[#363042]">
+    <header className="sticky top-0 z-40 bg-[#17151C]/95 backdrop-blur-md border-b border-[#363042]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
           
@@ -93,9 +103,35 @@ export const Navbar: React.FC = () => {
             ))}
           </nav>
 
-          {/* Right Controls: Benchmark Switcher & Upload Button */}
-          <div className="flex items-center gap-3">
+          {/* Right Controls: Groq AI Button, Copilot, and Sample Switcher */}
+          <div className="flex items-center gap-2.5">
             
+            {/* AI Models API Key Settings Button */}
+            <button
+              onClick={() => setIsGroqModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer transition-all ${
+                hasGroqKey
+                  ? 'bg-[#2ED573]/15 border-[#2ED573]/40 text-[#2ED573] shadow-[0_0_12px_rgba(46,213,115,0.2)]'
+                  : 'bg-[#2A1B38] border-[#B58AFF]/40 text-[#D6B8E8] hover:border-[#B58AFF]'
+              }`}
+              title="OpenAI & Groq AI Key Settings"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#B58AFF]" />
+              <span className="hidden sm:inline font-mono">
+                {hasGroqKey ? 'AI: Online' : 'AI Models'}
+              </span>
+            </button>
+
+            {/* AI Forensic Copilot Toggle Button */}
+            <button
+              onClick={() => setIsCopilotOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#2A1B38] border border-[#B58AFF]/40 text-[#F5F0FA] hover:bg-[#3D2452] transition-all cursor-pointer shadow-[0_0_12px_rgba(181,138,255,0.25)]"
+              title="Open AI Forensic Copilot"
+            >
+              <Bot className="w-4 h-4 text-[#B58AFF]" />
+              <span className="hidden md:inline">AI Copilot</span>
+            </button>
+
             {/* Quick Evaluator Mode Switcher */}
             <div className="hidden lg:flex items-center gap-1 bg-[#1E1B24] p-1 rounded-xl border border-[#363042]">
               <span className="text-[11px] text-[#A39AAA] px-2 font-mono">Demo:</span>
@@ -145,20 +181,9 @@ export const Navbar: React.FC = () => {
                 title="Evaluate Inconclusive Compressed Sample"
               >
                 <HelpCircle className="w-3 h-3" />
-                Inconcl (52.4%)
+                Inconcl
               </button>
             </div>
-
-            {/* Quick Upload CTA */}
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Sparkles className="w-3.5 h-3.5" />}
-              onClick={() => navigate('/upload')}
-              className="hidden sm:inline-flex"
-            >
-              Analyze Video
-            </Button>
 
             {/* Mobile Menu Hamburger Toggle */}
             <button
@@ -194,41 +219,29 @@ export const Navbar: React.FC = () => {
               ))}
             </div>
 
-            {/* Mobile Demo Switcher */}
-            <div className="pt-2">
-              <span className="text-[11px] text-[#A39AAA] font-mono block mb-1.5">Load Benchmark Demo:</span>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => {
-                    setSampleCase('manipulated');
-                    navigate('/results');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="p-2 rounded-lg bg-[#FF5370]/15 text-[#FF5370] text-[11px] font-bold border border-[#FF5370]/30"
-                >
-                  Fake (88.6%)
-                </button>
-                <button
-                  onClick={() => {
-                    setSampleCase('authentic');
-                    navigate('/results');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="p-2 rounded-lg bg-[#2ED573]/15 text-[#2ED573] text-[11px] font-bold border border-[#2ED573]/30"
-                >
-                  Real (4.8%)
-                </button>
-                <button
-                  onClick={() => {
-                    setSampleCase('inconclusive');
-                    navigate('/results');
-                    setMobileMenuOpen(false);
-                  }}
-                  className="p-2 rounded-lg bg-[#FFA502]/15 text-[#FFA502] text-[11px] font-bold border border-[#FFA502]/30"
-                >
-                  Inconclusive
-                </button>
-              </div>
+            {/* Mobile Groq AI Buttons */}
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setIsGroqModalOpen(true);
+                  setMobileMenuOpen(false);
+                }}
+                className="flex-1 py-2 rounded-xl bg-[#2A1B38] border border-[#B58AFF]/40 text-xs font-semibold text-[#D6B8E8] flex items-center justify-center gap-1.5"
+              >
+                <Key className="w-3.5 h-3.5 text-[#B58AFF]" />
+                <span>Configure Groq API Key</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsCopilotOpen(true);
+                  setMobileMenuOpen(false);
+                }}
+                className="flex-1 py-2 rounded-xl bg-[#B58AFF] text-[#17151C] text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <Bot className="w-4 h-4" />
+                <span>AI Copilot</span>
+              </button>
             </div>
           </div>
         )}

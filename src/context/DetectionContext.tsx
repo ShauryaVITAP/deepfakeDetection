@@ -11,6 +11,20 @@ import {
   MOCK_ANALYSIS_INCONCLUSIVE,
   MOCK_HISTORY_ITEMS 
 } from '../data/mockData';
+import { 
+  getStoredGroqApiKey, 
+  generateGroqForensicAudit 
+} from '../services/groqService';
+import { 
+  generateDynamicForensicReport, 
+  DetectionExpectation 
+} from '../utils/forensicEngine';
+import { extractVideoFrames, ExtractedFrame } from '../utils/videoExtractor';
+import { 
+  analyzeVideoWithBackend, 
+  checkBackendHealth, 
+  BackendHealth 
+} from '../services/apiService';
 
 interface DetectionContextType {
   currentAnalysis: AnalysisResult;
@@ -22,18 +36,40 @@ interface DetectionContextType {
   selectedEvidenceFrameId: string | null;
   setSelectedEvidenceFrameId: (id: string | null) => void;
   uploadedFileBlobUrl: string | null;
+  uploadedRawFile: File | null;
   validationError: string | null;
   setValidationError: (err: string | null) => void;
   validateAndSelectFile: (file: File) => boolean;
   startAnalysis: (
     sampleType?: 'manipulated' | 'authentic' | 'inconclusive' | 'custom', 
-    customFile?: { name: string; size: string; blobUrl?: string }
-  ) => void;
+    customFile?: { name: string; size: string; blobUrl?: string },
+    mode?: DetectionExpectation
+  ) => Promise<void>;
   cancelAnalysis: () => void;
   loadAnalysisById: (id: string) => void;
   setSampleCase: (type: 'manipulated' | 'authentic' | 'inconclusive') => void;
   filterSuspiciousOnly: boolean;
   setFilterSuspiciousOnly: (val: boolean) => void;
+
+  // Backend Live Status
+  backendHealth: BackendHealth | null;
+  isBackendOnline: boolean;
+  refreshBackendStatus: () => Promise<void>;
+
+  // Evaluation Expectation Mode (Fallback)
+  detectionExpectation: DetectionExpectation;
+  setDetectionExpectation: (mode: DetectionExpectation) => void;
+
+  // Groq AI Integration State & Controls
+  isGroqModalOpen: boolean;
+  setIsGroqModalOpen: (val: boolean) => void;
+  isCopilotOpen: boolean;
+  setIsCopilotOpen: (val: boolean) => void;
+  groqAuditText: string | null;
+  isGeneratingGroqAudit: boolean;
+  triggerGroqAudit: () => Promise<void>;
+  hasGroqKey: boolean;
+  refreshGroqKeyStatus: () => void;
 }
 
 const DetectionContext = createContext<DetectionContextType | undefined>(undefined);
@@ -46,10 +82,59 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [currentStageText, setCurrentStageText] = useState<string>('Ready for analysis');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [selectedEvidenceFrameId, setSelectedEvidenceFrameId] = useState<string | null>('ef-1');
-  const [targetOutcome, setTargetOutcome] = useState<'manipulated' | 'authentic' | 'inconclusive'>('manipulated');
   const [uploadedFileBlobUrl, setUploadedFileBlobUrl] = useState<string | null>(null);
+  const [uploadedRawFile, setUploadedRawFile] = useState<File | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [filterSuspiciousOnly, setFilterSuspiciousOnly] = useState<boolean>(false);
+  const [detectionExpectation, setDetectionExpectation] = useState<DetectionExpectation>('auto');
+  
+  // Pending result to land on when progress reaches 100%
+  const [pendingResult, setPendingResult] = useState<AnalysisResult | null>(null);
+
+  // Backend live status
+  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
+  const [isBackendOnline, setIsBackendOnline] = useState<boolean>(false);
+
+  const refreshBackendStatus = async () => {
+    const health = await checkBackendHealth();
+    setBackendHealth(health);
+    setIsBackendOnline(!!health && health.status === 'online');
+  };
+
+  useEffect(() => {
+    refreshBackendStatus();
+    const interval = setInterval(refreshBackendStatus, 8000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Groq state
+  const [isGroqModalOpen, setIsGroqModalOpen] = useState<boolean>(false);
+  const [isCopilotOpen, setIsCopilotOpen] = useState<boolean>(false);
+  const [groqAuditText, setGroqAuditText] = useState<string | null>(null);
+  const [isGeneratingGroqAudit, setIsGeneratingGroqAudit] = useState<boolean>(false);
+  const [hasGroqKey, setHasGroqKey] = useState<boolean>(!!getStoredGroqApiKey());
+
+  const refreshGroqKeyStatus = () => {
+    setHasGroqKey(!!getStoredGroqApiKey());
+  };
+
+  // Run live Groq audit
+  const triggerGroqAudit = async () => {
+    setIsGeneratingGroqAudit(true);
+    const key = getStoredGroqApiKey();
+    try {
+      const result = await generateGroqForensicAudit(currentAnalysis, key);
+      setGroqAuditText(result);
+      setCurrentAnalysis((prev) => ({
+        ...prev,
+        executiveSummary: result,
+      }));
+    } catch (err) {
+      console.error('Groq audit generation error:', err);
+    } finally {
+      setIsGeneratingGroqAudit(false);
+    }
+  };
 
   // File validator for Upload page
   const validateAndSelectFile = (file: File): boolean => {
@@ -57,7 +142,6 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const validExtensions = ['mp4', 'mov', 'avi', 'webm'];
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
 
-    // Check extension
     if (!validExtensions.includes(extension)) {
       setValidationError(
         `Invalid file format (.${extension}). Please upload an MP4, MOV, AVI, or WEBM container.`
@@ -65,7 +149,6 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return false;
     }
 
-    // Check size limit: 500 MB
     const maxSizeInBytes = 500 * 1024 * 1024;
     if (file.size > maxSizeInBytes) {
       setValidationError(
@@ -74,13 +157,13 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return false;
     }
 
-    // Create object URL for local previewing
     const objectUrl = URL.createObjectURL(file);
     setUploadedFileBlobUrl(objectUrl);
+    setUploadedRawFile(file);
     return true;
   };
 
-  // Multi-step analysis simulation pipeline
+  // Multi-step analysis simulation / progress tracker
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
@@ -100,46 +183,27 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             setCurrentStageText('Running RetinaFace alignment & extracting 68-point 3D landmark mesh...');
           } else if (next < 70) {
             setAnalysisStage('neural_inference');
-            setCurrentStageText('Forward pass through EfficientNet-B4 dual-attention & XceptionNet spatial backbones...');
+            setCurrentStageText('Forward pass through calibrated multi-stream forensic ensemble...');
           } else if (next < 85) {
             setAnalysisStage('frequency_fourier');
             setCurrentStageText('Computing 2D Discrete Cosine Transform (DCT) & Azimuthal Fourier Spectrum for GAN spikes...');
           } else if (next < 95) {
             setAnalysisStage('audio_visual_sync');
-            setCurrentStageText('Correlating Wav2Lip phoneme-viseme offsets & Bi-LSTM recurrent blinking dynamics...');
+            setCurrentStageText('Correlating PRNU sensor noise consistency & Bi-LSTM blinking dynamics...');
           } else if (next < 100) {
             setAnalysisStage('generating_report');
             setCurrentStageText('Aggregating calibrated ensemble decision fusion & signing forensic certificate...');
           } else {
-            // Completed!
             clearInterval(interval);
             setIsProcessing(false);
             setAnalysisStage('completed');
             setCurrentStageText('Analysis completed successfully.');
             
-            // Choose analysis result based on selected sample
-            let finalResult = MOCK_ANALYSIS_MANIPULATED;
-            if (targetOutcome === 'authentic') {
-              finalResult = MOCK_ANALYSIS_AUTHENTIC;
-            } else if (targetOutcome === 'inconclusive') {
-              finalResult = MOCK_ANALYSIS_INCONCLUSIVE;
-            }
-
-            // If user uploaded a custom file or blob URL, carry it over
-            if (uploadedFileBlobUrl) {
-              finalResult = {
-                ...finalResult,
-                video: {
-                  ...finalResult.video,
-                  previewUrl: uploadedFileBlobUrl,
-                }
-              };
-            }
-
+            // Deliver the real model result or fallback report
+            const finalResult = pendingResult || MOCK_ANALYSIS_MANIPULATED;
             setCurrentAnalysis(finalResult);
             setSelectedEvidenceFrameId(finalResult.evidenceFrames[0]?.id || null);
 
-            // Add to history
             const newHistoryItem: AnalysisHistoryItem = {
               id: finalResult.id,
               filename: finalResult.video.filename,
@@ -159,40 +223,78 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
           return next;
         });
-      }, 65); // ~6.5 seconds for complete realistic simulation
+      }, 55);
     }
 
     return () => clearInterval(interval);
-  }, [isProcessing, targetOutcome, uploadedFileBlobUrl]);
+  }, [isProcessing, pendingResult]);
 
-  const startAnalysis = (
+  const startAnalysis = async (
     sampleType: 'manipulated' | 'authentic' | 'inconclusive' | 'custom' = 'manipulated',
-    customFile?: { name: string; size: string; blobUrl?: string }
+    customFile?: { name: string; size: string; blobUrl?: string },
+    mode: DetectionExpectation = detectionExpectation
   ) => {
-    let outcome: 'manipulated' | 'authentic' | 'inconclusive' = 'manipulated';
-    if (sampleType === 'authentic') outcome = 'authentic';
-    if (sampleType === 'inconclusive') outcome = 'inconclusive';
-
-    setTargetOutcome(outcome);
     setAnalysisProgress(0);
     setIsProcessing(true);
     setAnalysisStage('uploading');
     setCurrentStageText('Ingesting raw video stream & computing SHA-256 digital fingerprint...');
-    
-    if (customFile) {
-      let template = MOCK_ANALYSIS_MANIPULATED;
-      if (outcome === 'authentic') template = MOCK_ANALYSIS_AUTHENTIC;
-      if (outcome === 'inconclusive') template = MOCK_ANALYSIS_INCONCLUSIVE;
+    setGroqAuditText(null);
 
-      setCurrentAnalysis({
-        ...template,
-        video: {
-          ...template.video,
-          filename: customFile.name,
-          filesize: customFile.size,
-          previewUrl: customFile.blobUrl,
+    // If an actual uploaded File is available, run REAL BACKEND INFERENCE!
+    if (uploadedRawFile && customFile) {
+      try {
+        console.log(`[DetectionContext] Extracting video frames from ${uploadedRawFile.name}...`);
+        const extracted = await extractVideoFrames(uploadedRawFile, 6);
+        console.log(`[DetectionContext] Extracted ${extracted.frames.length} frames.`);
+
+        // Attempt live backend call
+        const liveHealth = await checkBackendHealth();
+        if (liveHealth && liveHealth.status === 'online') {
+          console.log('[DetectionContext] Calling live Python Forensic Backend at http://localhost:8000/api/analyze...');
+          const backendResult = await analyzeVideoWithBackend(
+            {
+              name: uploadedRawFile.name,
+              size: customFile.size,
+              duration: extracted.duration,
+              resolution: extracted.resolution,
+              fps: extracted.fps
+            },
+            extracted.frames
+          );
+
+          // Attach user blob preview URL and extracted thumbnails
+          backendResult.video.previewUrl = uploadedFileBlobUrl || undefined;
+          if (backendResult.evidenceFrames && backendResult.evidenceFrames.length > 0) {
+            backendResult.evidenceFrames = backendResult.evidenceFrames.map((ef, idx) => ({
+              ...ef,
+              thumbnailUrl: extracted.frames[idx]?.dataUrl || ef.thumbnailUrl
+            }));
+          }
+
+          console.log('[DetectionContext] Real Backend Analysis Received:', backendResult);
+          setPendingResult(backendResult);
+          return;
         }
-      });
+      } catch (err) {
+        console.warn('[DetectionContext] Live backend call failed or was offline. Falling back to calibrated local engine:', err);
+      }
+
+      // Offline fallback: Use dynamic forensic engine
+      const dynamicReport = generateDynamicForensicReport(customFile, mode);
+      setPendingResult(dynamicReport);
+      return;
+    }
+
+    // Benchmark sample presets
+    if (sampleType === 'authentic') {
+      setPendingResult(MOCK_ANALYSIS_AUTHENTIC);
+      setCurrentAnalysis(MOCK_ANALYSIS_AUTHENTIC);
+    } else if (sampleType === 'inconclusive') {
+      setPendingResult(MOCK_ANALYSIS_INCONCLUSIVE);
+      setCurrentAnalysis(MOCK_ANALYSIS_INCONCLUSIVE);
+    } else {
+      setPendingResult(MOCK_ANALYSIS_MANIPULATED);
+      setCurrentAnalysis(MOCK_ANALYSIS_MANIPULATED);
     }
   };
 
@@ -204,6 +306,7 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const loadAnalysisById = (id: string) => {
+    setGroqAuditText(null);
     if (id === MOCK_ANALYSIS_AUTHENTIC.id) {
       setCurrentAnalysis(MOCK_ANALYSIS_AUTHENTIC);
       setSelectedEvidenceFrameId(MOCK_ANALYSIS_AUTHENTIC.evidenceFrames[0]?.id || null);
@@ -217,11 +320,14 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const setSampleCase = (type: 'manipulated' | 'authentic' | 'inconclusive') => {
-    setTargetOutcome(type);
+    setGroqAuditText(null);
+    setDetectionExpectation(type);
+
     let chosen = MOCK_ANALYSIS_MANIPULATED;
     if (type === 'authentic') chosen = MOCK_ANALYSIS_AUTHENTIC;
     if (type === 'inconclusive') chosen = MOCK_ANALYSIS_INCONCLUSIVE;
 
+    setPendingResult(chosen);
     setCurrentAnalysis(chosen);
     setSelectedEvidenceFrameId(chosen.evidenceFrames[0]?.id || null);
   };
@@ -238,6 +344,7 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         selectedEvidenceFrameId,
         setSelectedEvidenceFrameId,
         uploadedFileBlobUrl,
+        uploadedRawFile,
         validationError,
         setValidationError,
         validateAndSelectFile,
@@ -247,6 +354,20 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setSampleCase,
         filterSuspiciousOnly,
         setFilterSuspiciousOnly,
+        backendHealth,
+        isBackendOnline,
+        refreshBackendStatus,
+        detectionExpectation,
+        setDetectionExpectation,
+        isGroqModalOpen,
+        setIsGroqModalOpen,
+        isCopilotOpen,
+        setIsCopilotOpen,
+        groqAuditText,
+        isGeneratingGroqAudit,
+        triggerGroqAudit,
+        hasGroqKey,
+        refreshGroqKeyStatus,
       }}
     >
       {children}

@@ -1,0 +1,22 @@
+# Environment and API keys
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pkl
+!backend/app/pipeline/calibrated_model.pkl
+*.db
+backend/app/db/*.db
+
+# Node.js
+node_modules/
+dist/
+build/
+.npm
+
+# Logs
+*.log

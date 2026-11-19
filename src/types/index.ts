@@ -49,6 +49,7 @@ export interface FrameEvidence {
     width: number;
     height: number;
   };
+  thumbnailUrl?: string;
 }
 
 export interface VideoMetadata {
