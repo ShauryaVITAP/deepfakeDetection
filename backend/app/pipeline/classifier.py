@@ -36,7 +36,7 @@ class ForensicDeepfakeClassifier:
         except Exception as e:
             print(f"[Classifier] Warning initializing deep learning model: {e}")
 
-    def predict_image(self, image: Image.Image) -> Tuple[float, Dict[str, float], Dict[str, Any], float, float]:
+    def predict_image(self, image: Image.Image) -> Tuple[float, Dict[str, float], Dict[str, Any], float, float, List[float]]:
         """
         Extract physical forensic features and run PyTorch deep learning inference on a PIL Image.
         Returns:
@@ -45,13 +45,14 @@ class ForensicDeepfakeClassifier:
             raw_features: dict of computed feature scalars
             p_cnn_auth: PyTorch Softmax P(Class 0: AUTHENTIC)
             p_cnn_fake: PyTorch Softmax P(Class 1: MANIPULATED)
+            raw_logits: Raw PyTorch output logits [logit_0, logit_1]
         """
         # Ensure RGB mode
         if image.mode != "RGB":
             image = image.convert("RGB")
 
-        # 1. PyTorch Deep Learning Model Forward Pass
-        p_cnn_auth, p_cnn_fake, _ = self.gradcam.predict_probabilities(image)
+        # 1. PyTorch Deep Learning Model Forward Pass (with aspect-ratio preserving facial crop)
+        p_cnn_auth, p_cnn_fake, _, raw_logits = self.gradcam.predict_probabilities(image)
 
         # 2. Mathematical Forensic Feature Extraction
         feats = extract_advanced_forensic_features(image)
@@ -87,7 +88,7 @@ class ForensicDeepfakeClassifier:
             'texture': channel_texture
         }
 
-        return p_fake, channel_scores, feats, p_cnn_auth, p_cnn_fake
+        return p_fake, channel_scores, feats, p_cnn_auth, p_cnn_fake, raw_logits
 
     def evaluate_video_frames(
         self, 
@@ -129,14 +130,20 @@ class ForensicDeepfakeClassifier:
 
         total_frames = len(frames)
         step_sec = duration_seconds / max(1, total_frames)
+        raw_cnn_auth_list = []
+        raw_cnn_fake_list = []
 
         for i, frame in enumerate(frames):
-            p_fake, ch, feats, p_auth, p_dl_fake = self.predict_image(frame)
+            p_fake, ch, feats, p_auth, p_dl_fake, raw_logits = self.predict_image(frame)
             frame_p_fakes.append(p_fake)
             spatial_scores.append(ch['spatial'])
             freq_scores.append(ch['frequency'])
             texture_scores.append(ch['texture'])
+            raw_cnn_auth_list.append(p_auth)
+            raw_cnn_fake_list.append(p_dl_fake)
             
+            print(f"[Inference Log] Frame {i+1}/{total_frames}: CNN Logits={raw_logits} | P(Class 0: Real)={p_auth:.4f}, P(Class 1: Fake)={p_dl_fake:.4f} | Ensemble P(Fake)={p_fake:.4f}")
+
             score_pct = round(p_fake * 100, 1)
             time_sec = int(round(i * step_sec))
             mm = f"{time_sec // 60:02d}"
@@ -300,11 +307,15 @@ class ForensicDeepfakeClassifier:
             "predicted_class": verdict,
             "real_probability": round(authenticity_score / 100.0, 4),
             "deepfake_probability": round(overall_score / 100.0, 4),
+            "raw_cnn_authentic_prob": round(float(np.mean(raw_cnn_auth_list)), 4) if raw_cnn_auth_list else 0.5,
+            "raw_cnn_deepfake_prob": round(float(np.mean(raw_cnn_fake_list)), 4) if raw_cnn_fake_list else 0.5,
             "model_name": "EfficientNet-B0 (PyTorch) + Multi-Stream Forensic Ensemble",
             "model_version": "2.0.0",
             "preprocessing": {
                 "color_space": "RGB",
                 "target_resolution": [224, 224],
+                "facial_roi_cropped": True,
+                "aspect_ratio_preserved": True,
                 "normalization": "ImageNet (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])",
                 "tensor_shape": [1, 3, 224, 224]
             },

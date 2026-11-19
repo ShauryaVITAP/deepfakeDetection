@@ -62,9 +62,16 @@ def extract_advanced_forensic_features(image: Image.Image):
         azimuthal_var = 0.70
         
     # 2. Facial region vs Boundary Seam Analysis
-    # Center 50% face crop
-    y1, y2 = int(0.25 * h), int(0.75 * h)
-    x1, x2 = int(0.25 * w), int(0.75 * w)
+    # Aspect-ratio-aware face bounding region
+    if h > w:
+        # Portrait (mobile phone video): Face is typically centered in upper 15%-65%
+        y1, y2 = int(0.12 * h), int(0.62 * h)
+        x1, x2 = int(0.10 * w), int(0.90 * w)
+    else:
+        # Landscape: Face is centered
+        y1, y2 = int(0.18 * h), int(0.82 * h)
+        x1, x2 = int(0.22 * w), int(0.78 * w)
+    
     face_patch = gray[y1:y2, x1:x2]
     
     # Texture detail (Laplacian variance of face patch)

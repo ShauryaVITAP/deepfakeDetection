@@ -53,6 +53,27 @@ def pil_to_base64_data_uri(img: Image.Image, format: str = "JPEG", quality: int 
     return f"data:{mime};base64,{img_str}"
 
 
+def crop_facial_roi(image: Image.Image) -> Image.Image:
+    """
+    Extract aspect-ratio-preserving square facial ROI.
+    Prevents image squashing/distortion when resizing to 224x224.
+    """
+    w, h = image.size
+    if w == h:
+        return image
+    
+    if h > w:
+        # Portrait (mobile phone video): Face is located horizontally centered and in upper 12%-70%
+        crop_size = w
+        top = int(max(0, min(h - crop_size, 0.12 * h)))
+        return image.crop((0, top, w, top + crop_size))
+    else:
+        # Landscape: Face is centered horizontally and vertically
+        crop_size = h
+        left = int(max(0, (w - crop_size) // 2))
+        return image.crop((left, 0, left + crop_size, h))
+
+
 def decode_base64_to_pil(data_str: str) -> Image.Image:
     """Decode a base64 string or data URI to a PIL Image in RGB mode."""
     if "," in data_str:
@@ -205,17 +226,18 @@ class GradCAMService:
             print(f"[GradCAM] Fine-tuning error: {e}")
             return False
 
-    def predict_probabilities(self, image: Image.Image) -> Tuple[float, float, int]:
+    def predict_probabilities(self, image: Image.Image) -> Tuple[float, float, int, List[float]]:
         """
         Run PyTorch EfficientNet-B0 inference on a PIL Image.
         Returns:
             p_authentic: float in [0.0, 1.0] (Class 0: AUTHENTIC)
             p_manipulated: float in [0.0, 1.0] (Class 1: MANIPULATED)
             predicted_idx: int (0 or 1)
+            raw_logits: list of float [logit_0, logit_1]
         """
         self.initialize()
         if not self.is_initialized or self.model is None:
-            return 0.50, 0.50, 0
+            return 0.50, 0.50, 0, [0.0, 0.0]
 
         import torch
         import torch.nn.functional as F
@@ -223,15 +245,21 @@ class GradCAMService:
         if image.mode != "RGB":
             image = image.convert("RGB")
 
-        input_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        # Aspect-ratio-preserving square crop to avoid squashing face
+        cropped_face = crop_facial_roi(image)
+        input_tensor = self.transform(cropped_face).unsqueeze(0).to(self.device)
+
         with torch.no_grad():
+            self.model.eval()
             logits = self.model(input_tensor)
             probabilities = F.softmax(logits, dim=1).squeeze(0)
             p_authentic = float(probabilities[CLASS_AUTHENTIC].item())
             p_manipulated = float(probabilities[CLASS_MANIPULATED].item())
             predicted_idx = int(torch.argmax(logits, dim=1).item())
+            raw_logits = [float(l) for l in logits[0].tolist()]
 
-        return p_authentic, p_manipulated, predicted_idx
+        print(f"[Model Inference Log] Raw Logits: {raw_logits} | P(Class 0: AUTHENTIC)={p_authentic:.4f}, P(Class 1: MANIPULATED)={p_manipulated:.4f} | Aspect Ratio Preserved: {cropped_face.size}")
+        return p_authentic, p_manipulated, predicted_idx, raw_logits
 
     def generate_gradcam(
         self,

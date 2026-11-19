@@ -18,44 +18,37 @@ export interface AiModelItem {
 
 export const GROQ_MODELS: AiModelItem[] = [
   {
-    id: 'openai/gpt-oss-120b',
-    name: 'GPT-OSS 120B (Groq Primary Flagship)',
-    description: 'High-capacity 120B parameter reasoning model running on Groq LPUs. Exceptional general coding, logic, and analysis.',
-    badge: 'GPT-OSS 120B',
+    id: 'llama-3.3-70b-versatile',
+    name: 'Llama 3.3 70B Versatile (Groq Primary Flagship)',
+    description: 'High-capacity 70B parameter open reasoning engine running on Groq LPUs. Exceptional forensic analysis, coding, and legal deduction.',
+    badge: 'Llama 3.3 70B',
     is_primary: true
   },
   {
-    id: 'openai/gpt-oss-20b',
-    name: 'GPT-OSS 20B (Groq Verified Fallback)',
-    description: 'High-speed 20B parameter open reasoning engine. Fast, reliable fallback on Groq LPUs.',
-    badge: 'GPT-OSS 20B',
+    id: 'llama-3.1-8b-instant',
+    name: 'Llama 3.1 8B Instant (Groq Verified Fallback)',
+    description: 'Ultra-low latency sub-second inference (~800 tok/sec) for rapid interactive responses.',
+    badge: 'Llama 8B',
     is_fallback: true
   },
   {
-    id: 'qwen/qwen3.8-27b',
-    name: 'Qwen 3.8 27B (Groq Verified)',
-    description: 'Advanced open multilingual and STEM model accessible on Groq hardware.',
-    badge: 'Qwen 27B'
-  },
-  {
-    id: 'llama-3.1-8b-instant',
-    name: 'Llama 3.1 8B Instant (Groq Ultra-Fast)',
-    description: 'Ultra-low latency sub-second inference (~800 tok/sec) for lightweight tasks.',
-    badge: 'Llama 8B'
-  },
-  {
-    id: 'llama-3.3-70b-versatile',
-    name: 'Llama 3.3 70B Versatile (Groq)',
-    description: 'Flagship 70B open-weights model for deep technical and legal reasoning.',
-    badge: 'Llama 70B'
+    id: 'mixtral-8x7b-32768',
+    name: 'Mixtral 8x7B (Groq Verified)',
+    description: 'Advanced open Mixture-of-Experts model accessible on Groq hardware with 32k context.',
+    badge: 'Mixtral 8x7B'
   }
 ];
 
 export const AI_MODELS = GROQ_MODELS;
 
-// Active Model Preference in UI (Defaults to primary model: openai/gpt-oss-120b)
+// Active Model Preference in UI (Defaults to primary model: llama-3.3-70b-versatile)
 export const getStoredAiModel = (): string => {
-  return localStorage.getItem('aegis_groq_model') || 'openai/gpt-oss-120b';
+  const stored = localStorage.getItem('aegis_groq_model');
+  if (stored && (stored.includes('120b') || stored.includes('20b') || stored.includes('gpt-oss'))) {
+    localStorage.setItem('aegis_groq_model', 'llama-3.3-70b-versatile');
+    return 'llama-3.3-70b-versatile';
+  }
+  return stored || 'llama-3.3-70b-versatile';
 };
 
 export const setStoredAiModel = (model: string): void => {

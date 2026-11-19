@@ -75,7 +75,7 @@ def run_evaluation():
     # 1. Authentic Test Samples (Class 0)
     for i in range(n_samples_per_class):
         img = generate_synthetic_evaluation_face(is_deepfake=False, seed=1000 + i)
-        p_fake, ch, feats, p_auth, p_cnn_fake = classifier.predict_image(img)
+        p_fake, ch, feats, p_auth, p_cnn_fake, raw_logits = classifier.predict_image(img)
         y_true.append(CLASS_AUTHENTIC)
         y_pred_probs.append(p_fake)
         y_pred_classes.append(1 if p_fake >= 0.50 else 0)
@@ -86,7 +86,7 @@ def run_evaluation():
     if os.path.exists(anchor_path):
         try:
             real_anchor_img = Image.open(anchor_path).convert("RGB")
-            p_fake, ch, feats, p_auth, p_cnn_fake = classifier.predict_image(real_anchor_img)
+            p_fake, ch, feats, p_auth, p_cnn_fake, raw_logits = classifier.predict_image(real_anchor_img)
             y_true.append(CLASS_AUTHENTIC)
             y_pred_probs.append(p_fake)
             y_pred_classes.append(1 if p_fake >= 0.50 else 0)
@@ -97,7 +97,7 @@ def run_evaluation():
     # 2. Deepfake Test Samples (Class 1)
     for i in range(n_samples_per_class):
         img = generate_synthetic_evaluation_face(is_deepfake=True, seed=2000 + i)
-        p_fake, ch, feats, p_auth, p_cnn_fake = classifier.predict_image(img)
+        p_fake, ch, feats, p_auth, p_cnn_fake, raw_logits = classifier.predict_image(img)
         y_true.append(CLASS_MANIPULATED)
         y_pred_probs.append(p_fake)
         y_pred_classes.append(1 if p_fake >= 0.50 else 0)

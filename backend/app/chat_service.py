@@ -13,8 +13,8 @@ from .db import chat_db
 ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
 load_dotenv(ENV_PATH, override=True)
 
-DEFAULT_PRIMARY_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-DEFAULT_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b").strip()
+DEFAULT_PRIMARY_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+DEFAULT_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant").strip()
 
 def get_groq_api_key() -> Optional[str]:
     load_dotenv(ENV_PATH, override=True)
