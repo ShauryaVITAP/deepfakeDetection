@@ -13,8 +13,15 @@ from .db import chat_db
 ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
 load_dotenv(ENV_PATH, override=True)
 
-DEFAULT_PRIMARY_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
-DEFAULT_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant").strip()
+_raw_primary = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+if "gpt-oss" in _raw_primary or not _raw_primary:
+    _raw_primary = "llama-3.3-70b-versatile"
+DEFAULT_PRIMARY_MODEL = _raw_primary
+
+_raw_fallback = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant").strip()
+if "gpt-oss" in _raw_fallback or not _raw_fallback:
+    _raw_fallback = "llama-3.1-8b-instant"
+DEFAULT_FALLBACK_MODEL = _raw_fallback
 
 def get_groq_api_key() -> Optional[str]:
     load_dotenv(ENV_PATH, override=True)

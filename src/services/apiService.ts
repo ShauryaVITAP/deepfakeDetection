@@ -81,6 +81,27 @@ export async function analyzeVideoWithBackend(
   return data;
 }
 
+/**
+ * Send raw video file directly via multipart/form-data for server-side frame extraction & inference
+ */
+export async function analyzeRawVideoWithBackend(file: File): Promise<AnalysisResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE_URL}/api/analyze-video`, {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Video Analysis Backend Error (${res.status}): ${errorText}`);
+  }
+
+  const data: AnalysisResult = await res.json();
+  return data;
+}
+
 export interface ChatModelInfo {
   id: string;
   name: string;

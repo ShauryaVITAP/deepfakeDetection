@@ -22,6 +22,7 @@ import {
 import { extractVideoFrames, ExtractedFrame, VideoExtractionResult } from '../utils/videoExtractor';
 import { 
   analyzeVideoWithBackend, 
+  analyzeRawVideoWithBackend,
   checkBackendHealth, 
   BackendHealth 
 } from '../services/apiService';
@@ -204,7 +205,7 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             setCurrentStageText('Analysis completed successfully.');
             
             // Deliver the real model result or fallback report
-            const finalResult = pendingResult || MOCK_ANALYSIS_MANIPULATED;
+            const finalResult = pendingResult || MOCK_ANALYSIS_INCONCLUSIVE;
             setCurrentAnalysis(finalResult);
             setSelectedEvidenceFrameId(finalResult.evidenceFrames[0]?.id || null);
 
@@ -247,81 +248,75 @@ export const DetectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     // If an actual uploaded File is available, run REAL BACKEND INFERENCE!
     if (uploadedRawFile && customFile) {
-      let extracted: VideoExtractionResult | null = null;
       try {
         console.log(`[DetectionContext] Extracting video frames from ${uploadedRawFile.name}...`);
-        extracted = await extractVideoFrames(uploadedRawFile, 6);
-        console.log(`[DetectionContext] Extracted ${extracted.frames.length} frames.`);
+        const extracted = await extractVideoFrames(uploadedRawFile, 6).catch(() => null);
 
-        // Attempt live backend call
-        const liveHealth = await checkBackendHealth();
-        if (liveHealth && liveHealth.status === 'online') {
-          console.log('[DetectionContext] Calling live Python Forensic Backend at http://localhost:8000/api/analyze...');
-          const backendResult = await analyzeVideoWithBackend(
-            {
-              name: uploadedRawFile.name,
-              size: customFile.size,
-              duration: extracted.duration,
-              resolution: extracted.resolution,
-              fps: extracted.fps
-            },
-            extracted.frames
-          );
+        let backendResult: AnalysisResult | null = null;
 
-          // Attach user blob preview URL and extracted thumbnails
+        if (extracted && extracted.frames && extracted.frames.length > 0) {
+          console.log(`[DetectionContext] Extracted ${extracted.frames.length} frames. Sending to backend /api/analyze...`);
+          try {
+            backendResult = await analyzeVideoWithBackend(
+              {
+                name: uploadedRawFile.name,
+                size: customFile.size,
+                duration: extracted.duration,
+                resolution: extracted.resolution,
+                fps: extracted.fps
+              },
+              extracted.frames
+            );
+          } catch (apiErr) {
+            console.warn('[DetectionContext] JSON frame analysis failed, falling back to direct video upload:', apiErr);
+          }
+        }
+
+        // If client-side canvas extraction failed or JSON API was rejected, upload raw video directly to /api/analyze-video!
+        if (!backendResult) {
+          console.log('[DetectionContext] Uploading raw video directly to backend /api/analyze-video...');
+          backendResult = await analyzeRawVideoWithBackend(uploadedRawFile);
+        }
+
+        if (backendResult) {
           backendResult.video.previewUrl = uploadedFileBlobUrl || undefined;
-          if (backendResult.evidenceFrames && backendResult.evidenceFrames.length > 0) {
+          if (extracted?.frames && backendResult.evidenceFrames?.length > 0) {
             backendResult.evidenceFrames = backendResult.evidenceFrames.map((ef, idx) => ({
               ...ef,
-              thumbnailUrl: extracted?.frames[idx]?.dataUrl || ef.thumbnailUrl
+              thumbnailUrl: extracted.frames[idx]?.dataUrl || ef.thumbnailUrl
             }));
           }
-
           console.log('[DetectionContext] Real Backend Analysis Received:', backendResult);
           setPendingResult(backendResult);
           return;
         }
-      } catch (err) {
-        console.warn('[DetectionContext] Live backend call failed or was offline. Falling back to calibrated local engine:', err);
+      } catch (err: any) {
+        console.error('[DetectionContext] Backend neural inference error:', err);
+        setIsProcessing(false);
+        setAnalysisStage('idle');
+        setValidationError(`Neural Inference Error: ${err.message || 'Backend connection failed'}. Please verify backend status and try again.`);
+        return;
       }
+    }
 
-      // Offline / Vercel fallback: Use calibrated forensic engine with extracted keyframes & metadata
-      const dynamicReport = generateDynamicForensicReport(
-        {
-          name: uploadedRawFile.name,
-          size: customFile.size,
-          blobUrl: uploadedFileBlobUrl || customFile.blobUrl,
-        },
-        mode,
-        extracted ? {
-          duration: extracted.duration,
-          durationSeconds: extracted.durationSeconds,
-          resolution: extracted.resolution,
-          fps: extracted.fps,
-          frames: extracted.frames,
-        } : undefined
-      );
-      setPendingResult(dynamicReport);
+    // Benchmark sample presets (no real file uploaded — show reference benchmark data)
+    if (sampleType === 'authentic') {
+      setPendingResult(MOCK_ANALYSIS_AUTHENTIC);
+      return;
+    } else if (sampleType === 'inconclusive') {
+      setPendingResult(MOCK_ANALYSIS_INCONCLUSIVE);
+      return;
+    } else if (sampleType === 'manipulated') {
+      setPendingResult(MOCK_ANALYSIS_MANIPULATED);
       return;
     }
 
     // Direct custom file without raw File stream
     if (customFile) {
-      const dynamicReport = generateDynamicForensicReport(customFile, mode);
-      setPendingResult(dynamicReport);
+      setValidationError("No raw video stream found. Please upload a real MP4/MOV video file.");
+      setIsProcessing(false);
+      setAnalysisStage('idle');
       return;
-    }
-
-    // Benchmark sample presets
-    if (sampleType === 'authentic') {
-      setPendingResult(MOCK_ANALYSIS_AUTHENTIC);
-      setCurrentAnalysis(MOCK_ANALYSIS_AUTHENTIC);
-    } else if (sampleType === 'inconclusive') {
-      setPendingResult(MOCK_ANALYSIS_INCONCLUSIVE);
-      setCurrentAnalysis(MOCK_ANALYSIS_INCONCLUSIVE);
-    } else {
-      setPendingResult(MOCK_ANALYSIS_MANIPULATED);
-      setCurrentAnalysis(MOCK_ANALYSIS_MANIPULATED);
     }
   };
 

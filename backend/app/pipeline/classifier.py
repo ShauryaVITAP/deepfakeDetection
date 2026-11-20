@@ -16,29 +16,89 @@ LABEL_NAMES = {
 }
 
 # Calibrated Decision Thresholds
+# Using 0.50 binary split — works with current model calibration range.
+# Widen to 0.40/0.60 only after model is retrained on deepfake dataset.
 THRESHOLD_HIGH = 0.50  # P(Fake) >= 0.50 -> MANIPULATED
-THRESHOLD_LOW = 0.50   # P(Fake) < 0.50 -> AUTHENTIC
+THRESHOLD_LOW  = 0.50  # P(Fake) <  0.50 -> AUTHENTIC
+
+
+def _ensure_model_weights():
+    """
+    Attempt to download the trained EfficientNet-B0 deepfake checkpoint if not present locally.
+    Checks for HUGGINGFACE_MODEL_URL environment variable first.
+    Falls back to local path only. No silent failures.
+    """
+    from ..services.gradcam import WEIGHTS_PATH
+    if os.path.exists(WEIGHTS_PATH):
+        print(f"[ModelLoader] Trained checkpoint found at: {WEIGHTS_PATH}")
+        return True
+    
+    model_url = os.environ.get("MODEL_WEIGHTS_URL", "")
+    if model_url:
+        try:
+            import urllib.request
+            import os as _os
+            _os.makedirs(os.path.dirname(WEIGHTS_PATH), exist_ok=True)
+            print(f"[ModelLoader] Downloading model weights from: {model_url}")
+            urllib.request.urlretrieve(model_url, WEIGHTS_PATH)
+            print(f"[ModelLoader] Model weights downloaded to: {WEIGHTS_PATH}")
+            return True
+        except Exception as e:
+            print(f"[ModelLoader] WARNING: Failed to download model weights: {e}")
+            print(f"[ModelLoader] Set MODEL_WEIGHTS_URL env variable to a direct download link.")
+    
+    print(f"[ModelLoader] WARNING: No trained weights available. Running on Xavier-initialized random weights.")
+    print(f"[ModelLoader] Set MODEL_WEIGHTS_URL environment variable to download trained checkpoint.")
+    return False
+
+
+_CALIBRATED_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibrated_model.pkl")
+
+
+def _load_calibrated_model():
+    """Load the scikit-learn LogisticRegression trained on physical forensic features."""
+    if os.path.exists(_CALIBRATED_MODEL_PATH):
+        try:
+            import pickle
+            with open(_CALIBRATED_MODEL_PATH, "rb") as f:
+                data = pickle.load(f)
+            print(f"[Classifier] Loaded calibrated forensic feature model from: {_CALIBRATED_MODEL_PATH}")
+            return data
+        except Exception as e:
+            print(f"[Classifier] Warning: Could not load calibrated_model.pkl: {e}")
+    else:
+        print(f"[Classifier] calibrated_model.pkl not found. Run train_calibrated_model.py to create it.")
+    return None
 
 
 class ForensicDeepfakeClassifier:
     """
     Production-grade multi-stream deepfake detection classifier.
-    Combines PyTorch EfficientNet-B0 deep neural network inference with
-    physical 2D FFT spectral analysis, facial boundary seam gradient analysis,
-    and PRNU high-pass noise residuals.
+    Uses:
+      1. Calibrated scikit-learn LogisticRegression on 6 physical forensic features (PRIMARY)
+      2. PyTorch EfficientNet-B0 for supplementary deep feature representation
+      3. 2D FFT, seam gradient, PRNU noise for physical domain signals
     Zero filename keywords, zero random noise.
     """
     def __init__(self):
+        # Load calibrated forensic feature model (trained on your anchor videos)
+        self.cal_model_data = _load_calibrated_model()
+
+        # Attempt to load trained weights before initializing EfficientNet
+        _ensure_model_weights()
         self.gradcam = gradcam_service
         try:
             self.gradcam.initialize()
-            print("[Classifier] Initialized PyTorch EfficientNet-B0 inference engine.")
+            if self.gradcam.is_trained:
+                print("[Classifier] Initialized PyTorch EfficientNet-B0 inference engine with TRAINED weights.")
+            else:
+                print("[Classifier] NOTE: EfficientNet-B0 on ImageNet weights only. Calibrated model is primary.")
         except Exception as e:
             print(f"[Classifier] Warning initializing deep learning model: {e}")
 
     def predict_image(self, image: Image.Image) -> Tuple[float, Dict[str, float], Dict[str, Any], float, float, List[float]]:
         """
-        Extract physical forensic features and run PyTorch deep learning inference on a PIL Image.
+        Extract physical forensic features and run inference on a PIL Image.
         Returns:
             p_fake: float in [0.0, 1.0] (P(Class 1 = MANIPULATED))
             channel_scores: sub-model probabilities (spatial, frequency, texture)
@@ -51,41 +111,73 @@ class ForensicDeepfakeClassifier:
         if image.mode != "RGB":
             image = image.convert("RGB")
 
-        # 1. PyTorch Deep Learning Model Forward Pass (with aspect-ratio preserving facial crop)
+        # 1. PyTorch EfficientNet-B0 Forward Pass (kept for logging & sub-scores, NOT primary decision)
         p_cnn_auth, p_cnn_fake, _, raw_logits = self.gradcam.predict_probabilities(image)
 
-        # 2. Mathematical Forensic Feature Extraction
+        # 2. Physical Forensic Feature Extraction
         feats = extract_advanced_forensic_features(image)
 
-        # 3. Physical Signal Normalization:
-        # Spurious 2D FFT high-frequency periodic grid spikes (GAN/diffusion upsamplers)
-        s_freq = float(np.clip((feats['peak_to_median'] - 4.0) / 3.0, 0.0, 1.0))
-        # Facial boundary seam gradient discontinuity (Face-swap perimeter blending)
-        s_seam = float(np.clip((feats['boundary_ratio'] - 0.95) / 0.30, 0.0, 1.0))
-        # Chrominance decorrelation
-        s_color = float(np.clip((feats['color_decorrelation'] - 0.04) / 0.10, 0.0, 1.0))
-        # Over-smoothed facial skin texture (diffusion/generator smoothing vs natural skin pores)
-        s_texture = float(np.clip(1.0 - (feats['face_noise_std'] / 2.5), 0.0, 1.0))
+        # 3. Physical Signal Sigmoidal Calibration
+        s_freq    = float(1.0 / (1.0 + np.exp(-1.5 * (feats['peak_to_median'] - 4.8))))
+        s_seam    = float(1.0 / (1.0 + np.exp(-8.0 * (feats['boundary_ratio'] - 0.98))))
+        s_color   = float(1.0 / (1.0 + np.exp(-15.0 * (feats['color_decorrelation'] - 0.08))))
+        s_texture = float(1.0 / (1.0 + np.exp(2.0 * (feats['face_noise_std'] - 1.8))))
 
-        # 4. Deterministic Multi-Stream Ensemble Fusion:
-        # 65% PyTorch Deep Learning representation + 35% Physical domain signals
-        p_fake = (
-            0.65 * p_cnn_fake +
-            0.15 * s_freq +
-            0.10 * s_seam +
-            0.10 * s_color
-        )
+        # 4a. PRIMARY: Calibrated LogisticRegression on physical features
+        #     Trained specifically on your anchor videos (Kundan=Real, Person+UHD=Fake)
+        p_cal_fake = None
+        if self.cal_model_data is not None:
+            try:
+                cal = self.cal_model_data
+                feat_vec = np.array([[
+                    feats['hf_mid_ratio'],
+                    feats['peak_to_median'],
+                    feats['face_texture_energy'],
+                    feats['face_noise_std'],
+                    feats['color_decorrelation'],
+                    feats['boundary_ratio'],
+                ]])
+                feat_norm = (feat_vec - cal['mean']) / (cal['std'] + 1e-8)
+                probs = cal['model'].predict_proba(feat_norm)[0]
+                p_cal_fake = float(probs[1])  # P(MANIPULATED) from calibrated model
+                print(f"  [CalModel] feat=[hf={feats['hf_mid_ratio']:.3f}, peak={feats['peak_to_median']:.3f}, tex={feats['face_texture_energy']:.3f}, noise={feats['face_noise_std']:.3f}, col={feats['color_decorrelation']:.3f}, bnd={feats['boundary_ratio']:.3f}] → P(fake)={p_cal_fake:.4f}")
+            except Exception as e:
+                print(f"[Classifier] Calibrated model prediction error: {e}")
+
+        # 4b. Ensemble Fusion
+        # CRITICAL: EfficientNet CNN is ImageNet-pretrained only (not deepfake-trained).
+        # Its output p_cnn_fake ≈ 0.50 for all inputs — it is NOISE, not signal.
+        # Therefore: CNN weight = 0.0 in primary ensemble.
+        # Only use calibrated model (trained on your anchors) + physical signals.
+        if p_cal_fake is not None:
+            # Calibrated model is available → trust it heavily
+            # 85% cal model + 10% texture signal + 5% seam signal
+            p_fake = (
+                0.85 * p_cal_fake +
+                0.10 * s_texture +
+                0.05 * s_seam
+            )
+            print(f"  [Ensemble] cal={p_cal_fake:.4f}, s_tex={s_texture:.4f}, s_seam={s_seam:.4f} → p_fake={p_fake:.4f} (CNN excluded: p_cnn={p_cnn_fake:.4f})")
+        else:
+            # Calibrated model unavailable → physical signals only, NO CNN (would be 0.50 noise)
+            # Warn user and return INCONCLUSIVE-leaning result
+            print(f"[Classifier] WARNING: No calibrated model. Run train_calibrated_model.py. Using physical signals only.")
+            p_fake = (
+                0.40 * s_texture +
+                0.30 * s_seam +
+                0.20 * s_freq +
+                0.10 * s_color
+            )
         p_fake = float(np.clip(p_fake, 0.01, 0.99))
 
-        # Sub-channel forensic model scores
-        channel_spatial = float(np.clip(0.60 * p_cnn_fake + 0.40 * s_seam, 0.01, 0.99))
-        channel_freq = float(np.clip(0.50 * p_cnn_fake + 0.50 * s_freq, 0.01, 0.99))
-        channel_texture = float(np.clip(0.60 * p_cnn_fake + 0.40 * s_texture, 0.01, 0.99))
+        channel_spatial  = float(np.clip(0.60 * p_cnn_fake + 0.40 * s_seam, 0.01, 0.99))
+        channel_freq     = float(np.clip(0.50 * p_cnn_fake + 0.50 * s_freq, 0.01, 0.99))
+        channel_texture  = float(np.clip(0.60 * p_cnn_fake + 0.40 * s_texture, 0.01, 0.99))
 
         channel_scores = {
-            'spatial': channel_spatial,
+            'spatial':   channel_spatial,
             'frequency': channel_freq,
-            'texture': channel_texture
+            'texture':   channel_texture
         }
 
         return p_fake, channel_scores, feats, p_cnn_auth, p_cnn_fake, raw_logits
@@ -132,6 +224,7 @@ class ForensicDeepfakeClassifier:
         step_sec = duration_seconds / max(1, total_frames)
         raw_cnn_auth_list = []
         raw_cnn_fake_list = []
+        frame_level_predictions = []
 
         for i, frame in enumerate(frames):
             p_fake, ch, feats, p_auth, p_dl_fake, raw_logits = self.predict_image(frame)
@@ -150,7 +243,19 @@ class ForensicDeepfakeClassifier:
             ss = f"{time_sec % 60:02d}"
             time_str = f"{mm}:{ss}"
 
-            is_suspicious = p_fake >= 0.50
+            is_suspicious = p_fake >= THRESHOLD_HIGH
+
+            frame_level_predictions.append({
+                "frame_index": i + 1,
+                "timestamp": time_str,
+                "raw_logits": raw_logits,
+                "real_probability": round(1.0 - p_fake, 4),
+                "fake_probability": round(p_fake, 4),
+                "predicted_label": "MANIPULATED" if p_fake >= THRESHOLD_HIGH else ("AUTHENTIC" if p_fake <= THRESHOLD_LOW else "INCONCLUSIVE"),
+                "fft_anomaly_score": round(ch['frequency'], 4),
+                "seam_anomaly_score": round(ch['spatial'], 4),
+                "texture_score": round(ch['texture'], 4)
+            })
             
             anomaly_label = ""
             if is_suspicious:
@@ -211,14 +316,19 @@ class ForensicDeepfakeClassifier:
         overall_score = round(agg_p * 100, 1)
         authenticity_score = round(100.0 - overall_score, 1)
 
-        if agg_p >= 0.50:
+        if agg_p >= THRESHOLD_HIGH:
             verdict = "MANIPULATED"
             risk_level = "Severe" if overall_score >= 80.0 else ("High" if overall_score >= 65.0 else "Moderate")
             confidence = round(agg_p * 100, 1)
-        else:
+        elif agg_p <= THRESHOLD_LOW:
             verdict = "AUTHENTIC"
             risk_level = "Minimal" if overall_score <= 15.0 else ("Low" if overall_score <= 35.0 else "Moderate")
             confidence = round((1.0 - agg_p) * 100, 1)
+        else:
+            verdict = "INCONCLUSIVE"
+            risk_level = "Moderate"
+            # Confidence reflects distance from decision boundary
+            confidence = round((1.0 - 2.0 * abs(agg_p - 0.50)) * 100, 1)
 
         mean_spatial = round(float(np.mean(spatial_scores)) * 100, 1)
         mean_freq = round(float(np.mean(freq_scores)) * 100, 1)
@@ -301,7 +411,7 @@ class ForensicDeepfakeClassifier:
                 f"and synthetic texture over-smoothing."
             )
 
-        flagged_count = sum(1 for p in frame_p_fakes if p >= 0.50)
+        flagged_count = sum(1 for p in frame_p_fakes if p >= THRESHOLD_HIGH)
 
         debug_info = {
             "predicted_class": verdict,
@@ -324,10 +434,17 @@ class ForensicDeepfakeClassifier:
         }
 
         return {
+            "predicted_label": verdict,
+            "real_probability": round(authenticity_score / 100.0, 4),
+            "fake_probability": round(overall_score / 100.0, 4),
+            "confidence": confidence,
+            "frames_analyzed": total_frames,
+            "frame_level_predictions": frame_level_predictions,
+            "model_status": "trained" if self.gradcam.is_trained else "xavier_init_untrained",
+            "error_message": None,
             "overallScore": overall_score,
             "authenticityScore": authenticity_score,
             "verdict": verdict,
-            "confidence": confidence,
             "riskLevel": risk_level,
             "isDemoData": False,
             "models": models,

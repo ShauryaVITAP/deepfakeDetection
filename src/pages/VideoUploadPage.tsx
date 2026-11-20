@@ -47,11 +47,7 @@ export const VideoUploadPage: React.FC = () => {
     size: string;
     type: 'manipulated' | 'authentic' | 'inconclusive' | 'custom';
     blobUrl?: string;
-  } | null>({
-    name: "kundan deeppfake detection.mp4",
-    size: "2.7 MB",
-    type: 'authentic',
-  });
+  } | null>(null);
 
   const [isDragging, setIsDragging] = useState(false);
   const [pipelineMode, setPipelineMode] = useState<'comprehensive' | 'fast'>('comprehensive');
@@ -142,18 +138,18 @@ export const VideoUploadPage: React.FC = () => {
   };
 
   const handleStartScan = async () => {
-    if (selectedFile) {
-      startAnalysis(
-        selectedFile.type, 
-        {
-          name: selectedFile.name,
-          size: selectedFile.size,
-          blobUrl: selectedFile.blobUrl,
-        }
-      );
-    } else {
-      startAnalysis('manipulated');
+    if (!selectedFile) {
+      setValidationError('Please upload a video file or select a benchmark sample before launching the scan.');
+      return;
     }
+    startAnalysis(
+      selectedFile.type, 
+      {
+        name: selectedFile.name,
+        size: selectedFile.size,
+        blobUrl: selectedFile.blobUrl,
+      }
+    );
     navigate('/progress');
   };
 

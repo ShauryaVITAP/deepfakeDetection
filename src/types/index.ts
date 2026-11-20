@@ -102,6 +102,23 @@ export interface AnalysisResult {
   evidenceFrames: FrameEvidence[];
   certificateId: string;
   signatureHash: string;
+  predicted_label?: string;
+  real_probability?: number;
+  fake_probability?: number;
+  frames_analyzed?: number;
+  frame_level_predictions?: Array<{
+    frame_index: number;
+    timestamp: string;
+    raw_logits: number[];
+    real_probability: number;
+    fake_probability: number;
+    predicted_label: string;
+    fft_anomaly_score: number;
+    seam_anomaly_score: number;
+    texture_score: number;
+  }>;
+  model_status?: string;
+  error_message?: string | null;
   debugInfo?: {
     predicted_class: string;
     real_probability: number;

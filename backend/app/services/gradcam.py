@@ -97,6 +97,7 @@ class GradCAMService:
         self.transform = None
         self.is_initialized = False
         self.is_trained = False
+        self.weights_source = "unknown"
         self.target_layer_name = "features.8 (final 1280-channel Conv2dNormActivation)"
         self.init_error = None
 
@@ -115,14 +116,18 @@ class GradCAMService:
             print(f"[GradCAM] Initializing PyTorch EfficientNet-B0 on device: {self.device}")
 
             # 1. Instantiate EfficientNet-B0 architecture
-            # Attempt to use pretrained ImageNet weights for rich low-level and high-level feature extractors
-            try:
-                weights = models.EfficientNet_B0_Weights.DEFAULT
-                self.model = models.efficientnet_b0(weights=weights)
-                print("[GradCAM] Loaded pretrained EfficientNet-B0 feature representations.")
-            except Exception as e:
-                print(f"[GradCAM] Downloading/offline fallback for weights: {e}")
+            # If checkpoint exists locally, avoid downloading ImageNet weights (saves 21MB RAM & network)
+            if os.path.exists(WEIGHTS_PATH):
                 self.model = models.efficientnet_b0(weights=None)
+                print("[GradCAM] Instantiated EfficientNet-B0 architecture for local checkpoint.")
+            else:
+                try:
+                    weights = models.EfficientNet_B0_Weights.DEFAULT
+                    self.model = models.efficientnet_b0(weights=weights)
+                    print("[GradCAM] Loaded pretrained EfficientNet-B0 feature representations.")
+                except Exception as e:
+                    print(f"[GradCAM] Downloading/offline fallback for weights: {e}")
+                    self.model = models.efficientnet_b0(weights=None)
 
             # 2. Adapt the classification head for binary deepfake detection
             # EfficientNet-B0 classifier has Dropout -> Linear(1280, 1000)
@@ -138,13 +143,18 @@ class GradCAMService:
                 elif isinstance(checkpoint, dict):
                     self.model.load_state_dict(checkpoint)
                 self.is_trained = True
+                self.weights_source = "checkpoint"
                 print("[GradCAM] Successfully loaded fine-tuned deepfake weights.")
             else:
-                print(f"[GradCAM] No existing checkpoint at {WEIGHTS_PATH}. Initializing calibrated head.")
-                # Calibrate the classifier head weights with standard Xavier initialization
+                print(f"[GradCAM] WARNING: No fine-tuned checkpoint found at {WEIGHTS_PATH}.")
+                print(f"[GradCAM] Model is running on Xavier-initialized random weights.")
+                print(f"[GradCAM] Predictions will be UNRELIABLE. Deploy trained weights for production use.")
+                # Xavier initialization only — classifier head has random weights
+                # Predictions will be near-random until a trained checkpoint is loaded
                 nn.init.xavier_uniform_(self.model.classifier[1].weight)
                 nn.init.zeros_(self.model.classifier[1].bias)
-                self.is_trained = True
+                self.is_trained = False  # ← FIXED: correctly marks as untrained
+                self.weights_source = "xavier_fallback"
 
             self.model.to(self.device)
             self.model.eval()
@@ -332,9 +342,9 @@ class GradCAMService:
                 class_idx = predicted_idx
                 target_label = f"PREDICTED ({CLASS_NAMES[predicted_idx]})"
 
-            # 4. Backward pass for target class score
+            # 4. Backward pass for target class score (no retain_graph to avoid memory leaks)
             target_score = logits[0, class_idx]
-            target_score.backward(retain_graph=True)
+            target_score.backward()
 
             # 5. Grad-CAM Calculation
             # Gradients shape: (1, C, H, W)
@@ -410,9 +420,13 @@ class GradCAMService:
             }
 
         finally:
-            # Clean up hooks to prevent memory leaks
+            # Clean up hooks, autograd graph, and intermediate tensors to prevent memory leaks
             fwd_handle.remove()
             bwd_handle.remove()
+            if self.model is not None:
+                self.model.zero_grad(set_to_none=True)
+            activations.clear()
+            gradients.clear()
 
     def get_status(self) -> Dict[str, Any]:
         """Returns Grad-CAM service readiness, device, model, and hooked layer telemetry."""
@@ -425,6 +439,7 @@ class GradCAMService:
             "target_layer": self.target_layer_name,
             "device": str(self.device) if self.device else "cpu",
             "is_trained": self.is_trained,
+            "weights_source": getattr(self, 'weights_source', 'unknown'),
             "weights_file": WEIGHTS_PATH,
             "weights_exist": os.path.exists(WEIGHTS_PATH),
             "init_error": self.init_error
